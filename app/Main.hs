@@ -1,6 +1,10 @@
 module Main where
 
-import Lib
+import System.Environment
+
+import Scheme
 
 main :: IO ()
-main = someFunc
+main = do args <- getArgs
+          if null args then runRepl else runOne $ args
+
