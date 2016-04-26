@@ -1,3 +1,5 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module Scheme.Types
   ( Env
   , LispError(..)
@@ -5,9 +7,11 @@ module Scheme.Types
   , IOThrowsError
   , showVal
   , ThrowsError
+  , EnvIOThrowsError(..)
   ) where
 
 import Control.Monad.Except
+import Control.Monad.Reader
 import Data.IORef
 import System.IO
 import Text.Parsec
@@ -17,6 +21,9 @@ type IOThrowsError = ExceptT LispError IO
 
 -- FIXME:: Use Data.StRef instead of Data.IORef.
 type Env = IORef [(String, IORef LispVal)]
+newtype EnvIOThrowsError a = EnvIOThrowsError {
+        run :: (ReaderT Env (ExceptT LispError IO) a)
+    } deriving (Functor, Applicative, Monad, MonadIO, MonadReader Env, MonadError LispError)
 
 data LispVal = Atom String
              | List [LispVal]

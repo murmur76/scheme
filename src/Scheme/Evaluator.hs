@@ -1,4 +1,4 @@
-{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE ExistentialQuantification, FlexibleContexts #-}
 
 module Scheme.Evaluator
   ( runRepl
@@ -7,57 +7,66 @@ module Scheme.Evaluator
 
 import Control.Monad
 import Control.Monad.Except
+import Control.Monad.Reader
 import Data.IORef
 import System.IO
 
 import Scheme.Parser
 import Scheme.Types
 
+liftEnv :: IOThrowsError a -> EnvIOThrowsError a
+liftEnv x = EnvIOThrowsError $ lift x
+
+applyEnv :: Env -> EnvIOThrowsError a -> IOThrowsError a
+applyEnv env x = runReaderT (run x) env
+
 -- FIXME: Add let
--- FIXME: Use Control.Monad.Reader to remove `env` argument
-eval :: Env -> LispVal -> IOThrowsError LispVal
-eval env val@(String _) = return val
-eval env val@(Number _) = return val
-eval env val@(Bool _) = return val
-eval env (Atom id) = getVar env id
-eval env (List [Atom "quote", val]) = return val
+eval :: LispVal -> EnvIOThrowsError LispVal
+eval val@(String _) = return val
+eval val@(Number _) = return val
+eval val@(Bool _) = return val
+eval (Atom id) = getVar id
+eval (List [Atom "quote", val]) = return val
 -- FIXME: Make alt optional
-eval env (List [Atom "if", pred, conseq, alt]) =
-    do result <- eval env pred
-       case result of
-         Bool False -> eval env alt
-         otherwise -> eval env conseq
-eval env (List [Atom "set!", Atom var, form]) =
-    eval env form >>= setVar env var
-eval env (List [Atom "define", Atom var, form]) =
-    eval env form >>= defineVar env var
-eval env (List (Atom "define" : List (Atom var : params) : body)) =
-    makeNormalFunc env params body >>= defineVar env var
-eval env (List (Atom "define" : DottedList (Atom var : params) varargs : body)) =
-    makeVarargs varargs env params body >>= defineVar env var
-eval env (List (Atom "lambda" : List params : body)) =
-    makeNormalFunc env params body
-eval env (List (Atom "lambda" : DottedList params varargs : body)) =
-    makeVarargs varargs env params body
-eval env (List (Atom "lambda" : varargs@(Atom _) : body)) =
-    makeVarargs varargs env [] body
-eval env (List [Atom "load", String filename]) =
-    load filename >>= liftM last . mapM (eval env)
-eval env (List (function : args)) = do
-    func <- eval env function
-    argVals <- mapM (eval env) args
-    apply func argVals
-eval env badForm = throwError $ BadSpecialForm "Unrecognized special form" badForm
+eval (List [Atom "if", pred, conseq, alt]) = do
+    result <- eval pred
+    case result of
+        Bool False -> eval alt
+        otherwise -> eval conseq
+eval (List [Atom "set!", Atom var, form]) =
+    eval form >>= setVar var
+eval (List [Atom "define", Atom var, form]) =
+    eval form >>= defineVar var
+eval (List (Atom "define" : List (Atom var : params) : body)) =
+    makeNormalFunc params body >>= defineVar var
+eval (List (Atom "define" : DottedList (Atom var : params) varargs : body)) =
+    makeVarargs varargs params body >>= defineVar var
+eval (List (Atom "lambda" : List params : body)) =
+    makeNormalFunc params body
+eval (List (Atom "lambda" : DottedList params varargs : body)) =
+    makeVarargs varargs params body
+eval (List (Atom "lambda" : varargs@(Atom _) : body)) =
+    makeVarargs varargs [] body
+eval (List [Atom "load", String filename]) =
+    (liftEnv $ load filename) >>= liftM last . mapM eval
+eval (List (function : args)) = do
+    func <- eval function
+    argVals <- mapM eval args
+    liftEnv $ apply func argVals
+eval badForm = liftEnv $ throwError $ BadSpecialForm "Unrecognized special form" badForm
 
 apply :: LispVal -> [LispVal] -> IOThrowsError LispVal
 apply (PrimitiveFunc func) args = liftThrows $ func args
 apply (Func params varargs body closure) args =
     if num params /= num args && varargs == Nothing
        then throwError $ NumArgs (num params) args
-       else (liftIO $ bindVars closure $ zip params args) >>= bindVarArgs varargs >>= evalBody
+       else do
+           env <- (liftIO $ bindVars closure $ zip params args)
+           env' <- bindVarArgs varargs env
+           applyEnv env' evalBody
     where remainingArgs = drop (length params) args
           num = toInteger . length
-          evalBody env = liftM last $ mapM (eval env) body
+          evalBody = liftM last $ mapM eval body
           bindVarArgs arg env = case arg of
               Just argName -> liftIO $ bindVars env [(argName, List $ remainingArgs)]
               Nothing -> return env
@@ -190,7 +199,10 @@ evalAndPrint :: Env -> String -> IO ()
 evalAndPrint env expr =  evalString env expr >>= putStrLn
 
 evalString :: Env -> String -> IO String
-evalString env expr = runIOThrows $ liftM show $ (liftThrows $ readExpr expr) >>= eval env
+evalString env expr =
+    let evalResult = (liftEnv $ liftThrows $ readExpr expr) >>= eval :: EnvIOThrowsError LispVal
+    in
+        runEnvIOThrows env $ fmap show evalResult
 
 until_ :: Monad m => (a -> Bool) -> m a -> (a -> m ()) -> m ()
 until_ pred prompt action = do
@@ -203,7 +215,7 @@ until_ pred prompt action = do
 runOne :: [String] -> IO ()
 runOne args = do
     env <- primitiveBindings >>= flip bindVars [("args", List $ map String $ drop 1 args)]
-    (runIOThrows $ liftM show $ eval env (List [Atom "load", String (args !! 0)]))
+    (runEnvIOThrows env $ liftM show $ eval (List [Atom "load", String (args !! 0)]))
          >>= hPutStrLn stderr
 
 -- FIXME: Add auto-completion and history
@@ -224,30 +236,39 @@ liftThrows :: ThrowsError a -> IOThrowsError a
 liftThrows (Left err) = throwError err
 liftThrows (Right val) = return val
 
+runEnvIOThrows :: Env -> EnvIOThrowsError String -> IO String
+runEnvIOThrows env action = runIOThrows ioThrows
+    where ioThrows = (runReaderT . run) action $ env
+
 runIOThrows :: IOThrowsError String -> IO String
 runIOThrows action = runExceptT (trapError action) >>= return . extractValue
 
 isBound :: Env -> String -> IO Bool
 isBound envRef var = readIORef envRef >>= return . maybe False (const True) . lookup var
 
-getVar :: Env -> String -> IOThrowsError LispVal
-getVar envRef var  =  do env <- liftIO $ readIORef envRef
-                         maybe (throwError $ UnboundVar "Getting an unbound variable" var)
-                               (liftIO . readIORef)
-                               (lookup var env)
+getVar :: String -> EnvIOThrowsError LispVal
+getVar var  =  do
+    envRef <- ask
+    env <- liftIO $ readIORef envRef
+    maybe (throwError $ UnboundVar "Getting an unbound variable" var)
+                             (liftIO . readIORef)
+                             (lookup var env)
 
-setVar :: Env -> String -> LispVal -> IOThrowsError LispVal
-setVar envRef var value = do env <- liftIO $ readIORef envRef
-                             maybe (throwError $ UnboundVar "Setting an unbound variable" var)
-                                   (liftIO . (flip writeIORef value))
-                                   (lookup var env)
-                             return value
+setVar :: String -> LispVal -> EnvIOThrowsError LispVal
+setVar var value = do
+    envRef <- ask
+    env <- liftIO $ readIORef envRef
+    maybe (throwError $ UnboundVar "Setting an unbound variable" var)
+        (liftIO . (flip writeIORef value))
+        (lookup var env)
+    return value
 
-defineVar :: Env -> String -> LispVal -> IOThrowsError LispVal
-defineVar envRef var value = do
+defineVar :: String -> LispVal -> EnvIOThrowsError LispVal
+defineVar var value = do
+    envRef <- ask
     alreadyDefined <- liftIO $ isBound envRef var
     if alreadyDefined
-       then setVar envRef var value >> return value
+       then setVar var value >> return value
        else liftIO $ do
           valueRef <- newIORef value
           env <- readIORef envRef
@@ -260,7 +281,9 @@ bindVars envRef bindings = readIORef envRef >>= extendEnv bindings >>= newIORef
           addBinding (var, value) = do ref <- newIORef value
                                        return (var, ref)
 
-makeFunc varargs env params body = return $ Func (map showVal params) varargs body env
+makeFunc varargs params body = do
+  env <- ask
+  return $ Func (map showVal params) varargs body env
 makeNormalFunc = makeFunc Nothing
 makeVarargs = makeFunc . Just . showVal
 
