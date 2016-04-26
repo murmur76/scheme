@@ -43,9 +43,12 @@ parseAtom = do first <- letter <|> symbol
                           otherwise -> Atom atom
 
 -- FIXME: Recognize floating point numbers
--- FIXME: Recognize negative numbers
 parseNumber :: Parser LispVal
-parseNumber = liftM (Number . read) $ many1 digit
+parseNumber = do sign <- optionMaybe $ char '-'
+                 digits <- many1 digit
+                 return $ case sign of
+                            Nothing -> Number . read $ digits
+                            otherwise -> Number . negate . read $ digits
 
 parseList :: Parser LispVal
 parseList = liftM List $ sepBy parseExpr spaces
@@ -63,9 +66,9 @@ parseQuoted = do
     return $ List [Atom "quote", x]
 
 parseExpr :: Parser LispVal
-parseExpr = parseAtom
+parseExpr = try parseNumber
+        <|> parseAtom
         <|> parseString
-        <|> parseNumber
         <|> parseQuoted
         <|> do char '('
                x <- (try parseList) <|> parseDottedList
