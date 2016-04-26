@@ -13,12 +13,15 @@ import System.IO
 import Scheme.Parser
 import Scheme.Types
 
+-- FIXME: Add let
+-- FIXME: Use Control.Monad.Reader to remove `env` argument
 eval :: Env -> LispVal -> IOThrowsError LispVal
 eval env val@(String _) = return val
 eval env val@(Number _) = return val
 eval env val@(Bool _) = return val
 eval env (Atom id) = getVar env id
 eval env (List [Atom "quote", val]) = return val
+-- FIXME: Make alt optional
 eval env (List [Atom "if", pred, conseq, alt]) =
     do result <- eval env pred
        case result of
@@ -196,12 +199,15 @@ until_ pred prompt action = do
      then return ()
      else action result >> until_ pred prompt action
 
+-- FIXME: Load stdlib.scm before evaluating the program
 runOne :: [String] -> IO ()
 runOne args = do
     env <- primitiveBindings >>= flip bindVars [("args", List $ map String $ drop 1 args)]
     (runIOThrows $ liftM show $ eval env (List [Atom "load", String (args !! 0)]))
          >>= hPutStrLn stderr
 
+-- FIXME: Add auto-completion and history
+-- https://hackage.haskell.org/package/haskeline
 runRepl :: IO ()
 runRepl = primitiveBindings >>= until_ (== "quit") (readPrompt "Lisp>>> ") . evalAndPrint
 
@@ -258,6 +264,7 @@ makeFunc varargs env params body = return $ Func (map showVal params) varargs bo
 makeNormalFunc = makeFunc Nothing
 makeVarargs = makeFunc . Just . showVal
 
+-- FIXME: Add more IO primitives
 ioPrimitives :: [(String, [LispVal] -> IOThrowsError LispVal)]
 ioPrimitives = [("apply", applyProc),
                 ("open-input-file", makePort ReadMode),
@@ -268,6 +275,7 @@ ioPrimitives = [("apply", applyProc),
                 ("write", writeProc),
                 ("read-contents", readContents),
                 ("read-all", readAll)]
+-- FIXME: Add display function which prints the value to the stdout
 
 applyProc :: [LispVal] -> IOThrowsError LispVal
 applyProc [func, List args] = apply func args

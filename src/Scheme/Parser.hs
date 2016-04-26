@@ -11,6 +11,8 @@ import Text.Parsec.String
 
 import Scheme.Types
 
+-- FIXME: Ignore line starting with ;
+
 symbol :: Parser Char
 symbol = oneOf "!$%&|*+-/:<=>?@^_~#"
 
@@ -40,6 +42,8 @@ parseAtom = do first <- letter <|> symbol
                           "#f" -> Bool False
                           otherwise -> Atom atom
 
+-- FIXME: Recognize floating point numbers
+-- FIXME: Recognize negative numbers
 parseNumber :: Parser LispVal
 parseNumber = liftM (Number . read) $ many1 digit
 

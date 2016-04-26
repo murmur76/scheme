@@ -15,6 +15,7 @@ import Text.Parsec
 type ThrowsError = Either LispError
 type IOThrowsError = ExceptT LispError IO
 
+-- FIXME:: Use Data.StRef instead of Data.IORef.
 type Env = IORef [(String, IORef LispVal)]
 
 data LispVal = Atom String
