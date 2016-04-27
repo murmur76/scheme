@@ -14,14 +14,14 @@ import System.IO
 import Scheme.Parser
 import Scheme.Types
 
-liftEnv :: IOThrowsError a -> EnvIOThrowsError a
-liftEnv x = EnvIOThrowsError $ lift x
+liftEnv :: IOThrowsError a -> EvalM a
+liftEnv x = EvalM $ lift x
 
-applyEnv :: Env -> EnvIOThrowsError a -> IOThrowsError a
+applyEnv :: Env -> EvalM a -> IOThrowsError a
 applyEnv env x = runReaderT (run x) env
 
 -- FIXME: Add let
-eval :: LispVal -> EnvIOThrowsError LispVal
+eval :: LispVal -> EvalM LispVal
 eval val@(String _) = return val
 eval val@(Number _) = return val
 eval val@(Bool _) = return val
@@ -200,9 +200,9 @@ evalAndPrint env expr =  evalString env expr >>= putStrLn
 
 evalString :: Env -> String -> IO String
 evalString env expr =
-    let evalResult = (liftEnv $ liftThrows $ readExpr expr) >>= eval :: EnvIOThrowsError LispVal
+    let evalResult = (liftEnv $ liftThrows $ readExpr expr) >>= eval :: EvalM LispVal
     in
-        runEnvIOThrows env $ fmap show evalResult
+        runEvalM env $ fmap show evalResult
 
 until_ :: Monad m => (a -> Bool) -> m a -> (a -> m ()) -> m ()
 until_ pred prompt action = do
@@ -215,7 +215,7 @@ until_ pred prompt action = do
 runOne :: [String] -> IO ()
 runOne args = do
     env <- primitiveBindings >>= flip bindVars [("args", List $ map String $ drop 1 args)]
-    (runEnvIOThrows env $ liftM show $ eval (List [Atom "load", String (args !! 0)]))
+    (runEvalM env $ liftM show $ eval (List [Atom "load", String (args !! 0)]))
          >>= hPutStrLn stderr
 
 -- FIXME: Add auto-completion and history
@@ -236,8 +236,8 @@ liftThrows :: ThrowsError a -> IOThrowsError a
 liftThrows (Left err) = throwError err
 liftThrows (Right val) = return val
 
-runEnvIOThrows :: Env -> EnvIOThrowsError String -> IO String
-runEnvIOThrows env action = runIOThrows ioThrows
+runEvalM :: Env -> EvalM String -> IO String
+runEvalM env action = runIOThrows ioThrows
     where ioThrows = (runReaderT . run) action $ env
 
 runIOThrows :: IOThrowsError String -> IO String
@@ -246,7 +246,7 @@ runIOThrows action = runExceptT (trapError action) >>= return . extractValue
 isBound :: Env -> String -> IO Bool
 isBound envRef var = readIORef envRef >>= return . maybe False (const True) . lookup var
 
-getVar :: String -> EnvIOThrowsError LispVal
+getVar :: String -> EvalM LispVal
 getVar var  =  do
     envRef <- ask
     env <- liftIO $ readIORef envRef
@@ -254,7 +254,7 @@ getVar var  =  do
                              (liftIO . readIORef)
                              (lookup var env)
 
-setVar :: String -> LispVal -> EnvIOThrowsError LispVal
+setVar :: String -> LispVal -> EvalM LispVal
 setVar var value = do
     envRef <- ask
     env <- liftIO $ readIORef envRef
@@ -263,7 +263,7 @@ setVar var value = do
         (lookup var env)
     return value
 
-defineVar :: String -> LispVal -> EnvIOThrowsError LispVal
+defineVar :: String -> LispVal -> EvalM LispVal
 defineVar var value = do
     envRef <- ask
     alreadyDefined <- liftIO $ isBound envRef var

@@ -7,7 +7,7 @@ module Scheme.Types
   , IOThrowsError
   , showVal
   , ThrowsError
-  , EnvIOThrowsError(..)
+  , EvalM(..)
   ) where
 
 import Control.Monad.Except
@@ -21,7 +21,7 @@ type IOThrowsError = ExceptT LispError IO
 
 -- FIXME:: Use Data.StRef instead of Data.IORef.
 type Env = IORef [(String, IORef LispVal)]
-newtype EnvIOThrowsError a = EnvIOThrowsError {
+newtype EvalM a = EvalM {
         run :: (ReaderT Env (ExceptT LispError IO) a)
     } deriving (Functor, Applicative, Monad, MonadIO, MonadReader Env, MonadError LispError)
 
