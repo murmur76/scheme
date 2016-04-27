@@ -16,6 +16,9 @@ import Scheme.Types
 symbol :: Parser Char
 symbol = oneOf "!$%&|*+-/:<=>?@^_~#"
 
+between' :: Char -> Char -> Parser a -> Parser a
+between' open close = between (char open) (char close)
+
 readOrThrow :: Parser a -> String -> ThrowsError a
 readOrThrow parser input = case parse parser "lisp" input of
     Left err -> throwError $ Parser err
@@ -28,15 +31,12 @@ readExpr = readOrThrow parseExpr
 readExprList = readOrThrow (endBy parseExpr spaces)
 
 parseString :: Parser LispVal
-parseString = do char '"'
-                 x <- many (noneOf "\"")
-                 char '"'
-                 return $ String x
+parseString = between' '"' '"' $ liftM String $ many (noneOf "\"")
 
 parseAtom :: Parser LispVal
 parseAtom = do first <- letter <|> symbol
                rest <- many (letter <|> digit <|> symbol)
-               let atom = [first] ++ rest
+               let atom = first : rest
                return $ case atom of
                           "#t" -> Bool True
                           "#f" -> Bool False
@@ -67,8 +67,5 @@ parseExpr = parseAtom
         <|> parseString
         <|> parseNumber
         <|> parseQuoted
-        <|> do char '('
-               x <- (try parseList) <|> parseDottedList
-               char ')'
-               return x
+        <|> (between' '(' ')' $ (try parseList) <|> parseDottedList)
 
