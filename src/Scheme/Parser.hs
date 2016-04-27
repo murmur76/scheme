@@ -44,11 +44,11 @@ parseAtom = do first <- letter <|> symbol
 
 -- FIXME: Recognize floating point numbers
 parseNumber :: Parser LispVal
-parseNumber = do sign <- optionMaybe $ char '-'
+parseNumber = do sign <- optionMaybe $ oneOf "+-"
                  digits <- many1 digit
                  return $ case sign of
-                            Nothing -> Number . read $ digits
-                            otherwise -> Number . negate . read $ digits
+                            Just '-' -> Number . negate . read $ digits
+                            otherwise -> Number . read $ digits
 
 parseList :: Parser LispVal
 parseList = liftM List $ sepBy parseExpr spaces
