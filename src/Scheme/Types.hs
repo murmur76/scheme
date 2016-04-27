@@ -10,7 +10,7 @@ module Scheme.Types
 import Control.Monad.Except
 import Data.IORef
 import System.IO
-import Text.Parsec
+import Text.Megaparsec
 
 type ThrowsError = Either LispError
 type IOThrowsError = ExceptT LispError IO
