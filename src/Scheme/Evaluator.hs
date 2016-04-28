@@ -27,12 +27,15 @@ eval val@(Number _) = return val
 eval val@(Bool _) = return val
 eval (Atom id) = getVar id
 eval (List [Atom "quote", val]) = return val
--- FIXME: Make alt optional
-eval (List [Atom "if", pred, conseq, alt]) = do
-    result <- eval pred
-    case result of
-        Bool False -> eval alt
-        otherwise -> eval conseq
+eval val@(List (Atom "if" : pred : conseq : varargs)) =
+    if length varargs > 1
+        then throwError $ BadSpecialForm "Unrecognized special form" val
+        else do
+            result <- eval pred
+            case (result, varargs) of
+                (Bool False, [alt]) -> eval alt
+                (Bool False, []) -> return $ List []
+                otherwise -> eval conseq
 eval (List [Atom "set!", Atom var, form]) =
     eval form >>= setVar var
 eval (List [Atom "define", Atom var, form]) =
