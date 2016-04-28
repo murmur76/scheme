@@ -48,7 +48,7 @@ eval (List (Atom "lambda" : DottedList params varargs : body)) =
 eval (List (Atom "lambda" : varargs@(Atom _) : body)) =
     makeVarargs varargs [] body
 eval (List [Atom "load", String filename]) =
-    (liftEnv $ load filename) >>= liftM last . mapM eval
+    (liftEnv $ load filename) >>= fmap last . mapM eval
 eval (List (function : args)) = do
     func <- eval function
     argVals <- mapM eval args
@@ -66,7 +66,7 @@ apply (Func params varargs body closure) args =
            applyEnv env' evalBody
     where remainingArgs = drop (length params) args
           num = toInteger . length
-          evalBody = liftM last $ mapM eval body
+          evalBody = fmap last $ mapM eval body
           bindVarArgs arg env = case arg of
               Just argName -> liftIO $ bindVars env [(argName, List $ remainingArgs)]
               Nothing -> return env
@@ -178,7 +178,7 @@ unpackEquals arg1 arg2 (AnyUnpacker unpacker) =
 
 equal :: [LispVal] -> ThrowsError LispVal
 equal [arg1, arg2] = do
-    primitiveEquals <- liftM or $ mapM (unpackEquals arg1 arg2)
+    primitiveEquals <- fmap or $ mapM (unpackEquals arg1 arg2)
                       [AnyUnpacker unpackNum, AnyUnpacker unpackStr, AnyUnpacker unpackBool]
     eqvEquals <- eqv [arg1, arg2]
     return $ Bool $ (primitiveEquals || let (Bool x) = eqvEquals in x)
@@ -215,7 +215,7 @@ until_ pred prompt action = do
 runOne :: [String] -> IO ()
 runOne args = do
     env <- primitiveBindings >>= flip bindVars [("args", List $ map String $ drop 1 args)]
-    (runEvalM env $ liftM show $ eval (List [Atom "load", String (args !! 0)]))
+    (runEvalM env $ fmap show $ eval (List [Atom "load", String (args !! 0)]))
          >>= hPutStrLn stderr
 
 -- FIXME: Add auto-completion and history
@@ -277,7 +277,7 @@ defineVar var value = do
 
 bindVars :: Env -> [(String, LispVal)] -> IO Env
 bindVars envRef bindings = readIORef envRef >>= extendEnv bindings >>= newIORef
-    where extendEnv bindings env = liftM (++ env) (mapM addBinding bindings)
+    where extendEnv bindings env = fmap (++ env) (mapM addBinding bindings)
           addBinding (var, value) = do ref <- newIORef value
                                        return (var, ref)
 
@@ -305,7 +305,7 @@ applyProc [func, List args] = apply func args
 applyProc (func : args) = apply func args
 
 makePort :: IOMode -> [LispVal] -> IOThrowsError LispVal
-makePort mode [String filename] = liftM Port $ liftIO $ openFile filename mode
+makePort mode [String filename] = fmap Port $ liftIO $ openFile filename mode
 
 closePort :: [LispVal] -> IOThrowsError LispVal
 closePort [Port port] = liftIO $ hClose port >> (return $ Bool True)
@@ -320,10 +320,10 @@ writeProc [obj] = writeProc [obj, Port stdout]
 writeProc [obj, Port port] = liftIO $ hPrint port obj >> (return $ Bool True)
 
 readContents :: [LispVal] -> IOThrowsError LispVal
-readContents [String filename] = liftM String $ liftIO $ readFile filename
+readContents [String filename] = fmap String $ liftIO $ readFile filename
 
 load :: String -> IOThrowsError [LispVal]
 load filename = (liftIO $ readFile filename) >>= liftThrows . readExprList
 
 readAll :: [LispVal] -> IOThrowsError LispVal
-readAll [String filename] = liftM List $ load filename
+readAll [String filename] = fmap List $ load filename
