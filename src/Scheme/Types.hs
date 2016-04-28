@@ -62,7 +62,6 @@ data LispError = NumArgs Integer [LispVal]
                | BadSpecialForm String LispVal
                | NotFunction String String
                | UnboundVar String String
-               | Default String
 
 showError :: LispError -> String
 showError (UnboundVar message varname) = message ++ ": " ++ varname
